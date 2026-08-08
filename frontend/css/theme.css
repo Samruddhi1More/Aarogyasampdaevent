@@ -1,0 +1,42 @@
+/* Brand theme — derived from Aarogyasampada 360° logo (keep in sync with backend/app/theme.py) */
+:root {
+  /* Colors */
+  --color-primary: #0c7848;
+  --color-primary-dark: #085c38;
+  --color-primary-soft: #3ca854;
+  --color-accent: #90c03c;
+  --color-accent-soft: #d8e484;
+  --color-background: #f3f8f4;
+  --color-surface: #ffffff;
+  --color-text: #123528;
+  --color-text-secondary: #4a6356;
+  --color-border: #c5d9cb;
+  --color-error: #b42318;
+  --color-success: #0c7848;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Radii */
+  --radius-sm: 0.65rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.35rem;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-soft: 0 10px 30px rgba(18, 53, 40, 0.07);
+  --shadow-lift: 0 14px 36px rgba(12, 120, 72, 0.14);
+
+  /* Type */
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Manrope", "Segoe UI", sans-serif;
+
+  --header-h: 3.5rem;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}

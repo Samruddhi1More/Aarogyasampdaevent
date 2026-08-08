@@ -1,0 +1,1 @@
+"""Arogyasampada registration backend."""
