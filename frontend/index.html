@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
-      content="Register for Sahjeevan Puraskar 2026 — Aarogyasampada 360° & Marathwada Mitramandal."
+      content="Register for Sahjeevan Gaurav Puraskar 2026 — Aarogyasampada 360° & Marathwada Mitramandal."
     />
-    <title>Sahjeevan Puraskar 2026 — Registration</title>
+    <title>Sahjeevan Gaurav Puraskar 2026 — Registration</title>
     <link rel="icon" type="image/png" href="/assets/logos/aarogyasampada-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -41,7 +41,7 @@
         </div>
 
         <p class="org-line">Aarogyasampada 360° &amp; Marathwada Mitramandal</p>
-        <h1 class="event-title" id="event-title">Sahjeevan Puraskar 2026</h1>
+        <h1 class="event-title" id="event-title">Sahjeevan Gaurav Puraskar 2026</h1>
         <p class="event-lead">
           Join us in celebrating community, care, and service. Register below to receive your
           event pass.
@@ -83,7 +83,7 @@
             </div>
 
             <div class="field">
-              <label for="email">Email Address <span class="optional">(optional)</span></label>
+              <label for="email">Email</label>
               <input
                 id="email"
                 name="email"
@@ -113,19 +113,20 @@
               </div>
 
               <div class="field">
-                <label for="organization"
-                  >Organization <span class="optional">(optional)</span></label
+                <label for="invited_by"
+                  >Invited by <span class="required" aria-hidden="true">*</span></label
                 >
                 <input
-                  id="organization"
-                  name="organization"
+                  id="invited_by"
+                  name="invited_by"
                   type="text"
-                  autocomplete="organization"
-                  placeholder="Organization"
+                  autocomplete="off"
+                  placeholder="Who invited you?"
+                  required
                   maxlength="120"
-                  aria-describedby="organization-error"
+                  aria-describedby="invited_by-error"
                 />
-                <p class="field-error" id="organization-error" role="alert" hidden></p>
+                <p class="field-error" id="invited_by-error" role="alert" hidden></p>
               </div>
             </div>
 

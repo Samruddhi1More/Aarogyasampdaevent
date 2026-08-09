@@ -40,7 +40,12 @@ export function validateRegistration(data) {
     errors.city = "Please enter a valid city name";
   }
 
-  const organization = (data.organization || "").trim().replace(/\s+/g, " ");
+  const invited_by = (data.invited_by || "").trim().replace(/\s+/g, " ");
+  if (!invited_by) {
+    errors.invited_by = "Invited by is required";
+  } else if (invited_by.length > 120) {
+    errors.invited_by = "Invited by is too long";
+  }
 
   return {
     ok: Object.keys(errors).length === 0,
@@ -50,7 +55,7 @@ export function validateRegistration(data) {
       phone,
       email: email || null,
       city,
-      organization: organization || null,
+      invited_by,
     },
   };
 }

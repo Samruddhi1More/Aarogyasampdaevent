@@ -42,7 +42,7 @@ SHEET_HEADERS = [
     "Phone",
     "Email",
     "City",
-    "Organization",
+    "Invited by",
     "Ticket ID",
     "QR URL",
     "Pass URL",
@@ -59,7 +59,8 @@ HEADER_ALIASES: dict[str, list[str]] = {
     "Phone": ["Phone"],
     "Email": ["Email"],
     "City": ["City"],
-    "Organization": ["Organization"],
+    # Prefer "Invited by"; reuse existing "Organization" column if present (no duplicate)
+    "Invited by": ["Invited by", "Organization"],
     "Ticket ID": ["Ticket ID"],
     "QR URL": ["QR URL", "QR Token"],
     "Pass URL": ["Pass URL"],
@@ -187,6 +188,16 @@ def ensure_headers(settings: Settings | None = None) -> None:
         invalidate_header_cache()
         return
 
+    # Rename legacy "Organization" header to "Invited by" in-place (no new column)
+    renamed = False
+    for idx, header in enumerate(existing, start=1):
+        if header.strip().lower() == "organization":
+            worksheet.update_cell(1, idx, "Invited by")
+            existing[idx - 1] = "Invited by"
+            renamed = True
+            logger.info("Renamed Google Sheet column Organization → Invited by")
+            break
+
     present_lower = {h.lower() for h in existing if h}
     missing: list[str] = []
     for header in SHEET_HEADERS:
@@ -202,6 +213,9 @@ def ensure_headers(settings: Settings | None = None) -> None:
         worksheet.update_cells(cells, value_input_option="USER_ENTERED")
         logger.info("Added missing Google Sheet columns: %s", missing)
         invalidate_header_cache()
+    elif renamed:
+        invalidate_header_cache()
+        _get_headers_and_index(worksheet, force=True)
     else:
         _HEADER_CACHE["headers"] = existing
         _HEADER_CACHE["index"] = _build_header_index(existing)
@@ -216,7 +230,7 @@ def append_registration(
     email: str | None,
     city: str,
     timestamp: datetime | None = None,
-    organization: str = "",
+    invited_by: str = "",
     ticket_id: str = "",
     settings: Settings | None = None,
 ) -> dict[str, Any]:
@@ -236,7 +250,7 @@ def append_registration(
             "Phone": phone,
             "Email": email or "",
             "City": city,
-            "Organization": organization or "",
+            "Invited by": invited_by or "",
             "Ticket ID": ticket_id or "",
             "QR URL": "",
             "Pass URL": "",

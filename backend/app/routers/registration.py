@@ -56,7 +56,7 @@ async def register(
             phone=payload.phone,
             email=payload.email,
             city=payload.city,
-            organization=payload.organization or "",
+            invited_by=payload.invited_by,
             ticket_id=ticket_id,
             timestamp=timestamp,
             settings=settings,

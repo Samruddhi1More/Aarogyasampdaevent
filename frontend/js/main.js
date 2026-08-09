@@ -12,7 +12,7 @@ const successCopy = document.getElementById("success-copy");
 const passLink = document.getElementById("pass-link");
 const yearEl = document.getElementById("year");
 
-const fieldIds = ["name", "phone", "email", "city", "organization"];
+const fieldIds = ["name", "phone", "email", "city", "invited_by"];
 let isSubmitting = false;
 
 yearEl.textContent = String(new Date().getFullYear());
@@ -110,7 +110,7 @@ form.addEventListener("submit", async (event) => {
     phone: form.phone.value,
     email: form.email.value,
     city: form.city.value,
-    organization: form.organization.value,
+    invited_by: form.invited_by.value,
   };
 
   const { ok, errors, payload } = validateRegistration(raw);

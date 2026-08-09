@@ -17,7 +17,7 @@ class RegistrationRequest(BaseModel):
     phone: str = Field(..., examples=["9876543210"])
     email: Optional[str] = Field(default=None, examples=["priya@example.com"])
     city: str = Field(..., examples=["Pune"])
-    organization: Optional[str] = Field(default=None, examples=["Community Trust"])
+    invited_by: str = Field(..., examples=["Founder"])
 
     @field_validator("name")
     @classmethod
@@ -72,16 +72,14 @@ class RegistrationRequest(BaseModel):
             raise ValueError("City name is too long")
         return cleaned
 
-    @field_validator("organization")
+    @field_validator("invited_by")
     @classmethod
-    def validate_organization(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
+    def validate_invited_by(cls, value: str) -> str:
         cleaned = " ".join(str(value).split()).strip()
         if not cleaned:
-            return None
+            raise ValueError("Invited by is required")
         if len(cleaned) > 120:
-            raise ValueError("Organization name is too long")
+            raise ValueError("Invited by is too long")
         return cleaned
 
 

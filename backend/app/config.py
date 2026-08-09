@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     google_service_account_file: str
 
     # Event details (replace via .env)
-    event_name: str = "Sahjeevan Puraskar 2026"
+    event_name: str = "Sahjeevan Gaurav Puraskar 2026"
     event_date: str = "29 August 2026"
     event_time: str = "2:30 PM"
     event_venue: str = "Dnyaneshwar Sabhagruha, Marathwada Mitra Mandal Law College"

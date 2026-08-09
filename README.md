@@ -1,4 +1,4 @@
-# Aarogyasampada — Sahjeevan Puraskar 2026 Registration
+# Aarogyasampada — Sahjeevan Gaurav Puraskar 2026 Registration
 
 Registration form + Google Sheets storage + **event pass generation**, Cloudinary upload, and Resend email delivery.
 
@@ -90,9 +90,9 @@ Preferred headers (missing columns are added automatically; existing aliases are
 | Registration ID | `AS-YYYYMMDD-XXXXXX` |
 | Name | (alias: Full Name) |
 | Phone | |
-| Email | optional |
-| City | |
-| Organization | reserved (blank for now) |
+| Email | optional (no “(optional)” label in UI) |
+| City | required |
+| Invited by | required (replaces Organization) |
 | Ticket ID | `SAP-XXXXXXXX` |
 | QR URL | (alias: QR Token) |
 | Pass URL | Cloudinary secure URL |
