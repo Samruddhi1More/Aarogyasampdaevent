@@ -14,6 +14,9 @@ from backend.app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
+# Explicit socket timeout so production cannot hang indefinitely on SMTP
+SMTP_TIMEOUT_SECONDS = 20
+
 
 class EmailError(Exception):
     """Raised when email delivery fails."""
@@ -38,6 +41,13 @@ def build_pass_email_body(
         "We look forward to welcoming you.\n\n"
         f"Regards,\n{settings.ngo_name}\n"
     )
+
+
+def _mask_email(address: str) -> str:
+    if not address or "@" not in address:
+        return "***"
+    local, _, domain = address.partition("@")
+    return f"{local[:1]}***@{domain}"
 
 
 def send_pass_email(
@@ -75,39 +85,104 @@ def send_pass_email(
     )
     message.attach(attachment)
 
+    host = settings.email_host
+    port = int(settings.email_port)
+    context = ssl.create_default_context()
+    server: smtplib.SMTP | None = None
+
     try:
-        context = ssl.create_default_context()
         logger.info(
-            "[diag] step=11 smtp_connection_started host=%s port=%s",
-            settings.email_host,
-            settings.email_port,
+            "[EMAIL] SMTP connection started host=%s port=%s timeout=%ss ticket=%s to=%s",
+            host,
+            port,
+            SMTP_TIMEOUT_SECONDS,
+            ticket_id,
+            _mask_email(to_email),
         )
-        with smtplib.SMTP(settings.email_host, settings.email_port, timeout=30) as server:
+        try:
+            server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "[EMAIL] SMTP connection failed type=%s msg=%s",
+                type(exc).__name__,
+                exc,
+            )
+            raise EmailError(
+                f"SMTP connection failed ({type(exc).__name__}: {exc})"
+            ) from exc
+
+        logger.info("[EMAIL] SMTP connection established")
+
+        try:
             server.ehlo()
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "[EMAIL] SMTP EHLO failed type=%s msg=%s",
+                type(exc).__name__,
+                exc,
+            )
+            raise EmailError(f"SMTP EHLO failed ({type(exc).__name__}: {exc})") from exc
+
+        logger.info("[EMAIL] STARTTLS started")
+        try:
             server.starttls(context=context)
-            logger.info("[diag] step=12 starttls_succeeded")
             server.ehlo()
-            try:
-                server.login(settings.email_username, settings.email_password)
-                logger.info("[diag] step=13 smtp_authentication_succeeded")
-            except Exception as auth_exc:  # noqa: BLE001
-                logger.error(
-                    "[diag] step=13 smtp_authentication_failed type=%s msg=%s",
-                    type(auth_exc).__name__,
-                    auth_exc,
-                )
-                raise
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "[EMAIL] STARTTLS failed type=%s msg=%s",
+                type(exc).__name__,
+                exc,
+            )
+            raise EmailError(f"STARTTLS failed ({type(exc).__name__}: {exc})") from exc
+
+        logger.info("[EMAIL] STARTTLS completed")
+
+        logger.info("[EMAIL] SMTP login started user=%s", _mask_email(settings.email_username))
+        try:
+            server.login(settings.email_username, settings.email_password)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "[EMAIL] SMTP login failed type=%s msg=%s",
+                type(exc).__name__,
+                exc,
+            )
+            raise EmailError(f"SMTP login failed ({type(exc).__name__}: {exc})") from exc
+
+        logger.info("[EMAIL] SMTP login completed")
+
+        logger.info("[EMAIL] Email send started ticket=%s", ticket_id)
+        try:
             server.sendmail(settings.email_from, [to_email], message.as_string())
-            logger.info("[diag] step=14 email_sendmail_accepted ticket=%s", ticket_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "[EMAIL] Email send failed type=%s msg=%s",
+                type(exc).__name__,
+                exc,
+            )
+            raise EmailError(f"Email send failed ({type(exc).__name__}: {exc})") from exc
+
+        logger.info("[EMAIL] Email sent successfully ticket=%s", ticket_id)
+
+    except EmailError:
+        raise
     except Exception as exc:  # noqa: BLE001
         # Never log credentials
         logger.error(
-            "[diag] step=14 email_failed ticket=%s type=%s msg=%s",
+            "[EMAIL] Unexpected email failure ticket=%s type=%s msg=%s",
             ticket_id,
             type(exc).__name__,
             exc,
         )
         raise EmailError("Failed to send event pass email") from exc
+    finally:
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:  # noqa: BLE001
+                try:
+                    server.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 def resolve_email_status(email: Optional[str]) -> str:
