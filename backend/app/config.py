@@ -50,11 +50,9 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
 
-    # Gmail SMTP
-    email_host: str = "smtp.gmail.com"
-    email_port: int = 587
-    email_username: str = ""
-    email_password: str = ""
+    # Resend email (HTTPS API — no SMTP)
+    email_enabled: bool = True
+    resend_api_key: str = ""
     email_from: str = ""
 
     # WATI WhatsApp (disabled by default — no real sends)
@@ -128,11 +126,9 @@ class Settings(BaseSettings):
     @property
     def email_configured(self) -> bool:
         return bool(
-            self.email_host
-            and self.email_port
-            and self.email_username
-            and self.email_password
-            and self.email_from
+            self.email_enabled
+            and self.resend_api_key.strip()
+            and self.email_from.strip()
         )
 
     @property

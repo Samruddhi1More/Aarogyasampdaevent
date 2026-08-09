@@ -10,3 +10,4 @@ Pillow
 qrcode
 requests
 cloudinary
+resend

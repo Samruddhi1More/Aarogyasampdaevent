@@ -1,6 +1,6 @@
 # Aarogyasampada — Sahjeevan Puraskar 2026 Registration
 
-Registration form + Google Sheets storage + **event pass generation**, Cloudinary upload, and Gmail delivery.
+Registration form + Google Sheets storage + **event pass generation**, Cloudinary upload, and Resend email delivery.
 
 ## Features
 
@@ -10,7 +10,7 @@ Registration form + Google Sheets storage + **event pass generation**, Cloudinar
 - QR codes pointing to `https://aarogyasampada360.com/pass/{ticket_id}` (no PII in QR)
 - Premium portrait PNG event pass
 - Cloudinary upload under `sahjeevan-puraskar-2026/passes/`
-- Gmail SMTP pass delivery when email is provided
+- Resend HTTPS API pass delivery when email is provided
 - Idempotent pass generation (reuses Ticket ID + Pass URL)
 - WhatsApp / WATI placeholder only (not implemented)
 
@@ -76,7 +76,7 @@ cp .env.example .env
 | `NGO_LOGO_PATH` / `PARTNER_LOGO_PATH` | Logo files |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Pass hosting |
 | `CLOUDINARY_FOLDER` | Upload folder |
-| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_USERNAME` / `EMAIL_PASSWORD` / `EMAIL_FROM` | Gmail SMTP (App Password) |
+| `EMAIL_ENABLED` / `RESEND_API_KEY` / `EMAIL_FROM` | Resend HTTPS email (no SMTP) |
 
 Never commit `.env` or credential JSON files.
 

@@ -1,21 +1,25 @@
-"""Gmail SMTP email delivery for event passes."""
+"""Resend HTTPS email delivery for event passes.
+
+Uses the official Resend Python SDK over HTTPS (no SMTP).
+Docs: https://resend.com/docs/send-with-python
+Attachments: https://resend.com/docs/dashboard/emails/attachments
+"""
 
 from __future__ import annotations
 
+import base64
 import logging
-import smtplib
-import ssl
-from email.mime.image import MIMEImage
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Optional
+
+import resend
 
 from backend.app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-# Explicit socket timeout so production cannot hang indefinitely on SMTP
-SMTP_TIMEOUT_SECONDS = 20
+# Prevent indefinite hangs on the Resend HTTPS call
+RESEND_TIMEOUT_SECONDS = 30
 
 
 class EmailError(Exception):
@@ -57,12 +61,30 @@ def send_pass_email(
     ticket_id: str,
     pass_png: bytes,
     settings: Settings | None = None,
+    pass_url: str | None = None,
 ) -> None:
-    """Send the event pass PNG as an email attachment via Gmail SMTP (STARTTLS)."""
-    settings = settings or get_settings()
+    """Send the event pass PNG via Resend HTTPS API (same interface as before).
 
-    if not settings.email_configured:
-        raise EmailError("Email is not configured. Set EMAIL_* environment variables.")
+    ``pass_url`` is optional and unused in the body today (kept for compatibility).
+    The personalized PNG in ``pass_png`` is attached — not regenerated.
+    """
+    settings = settings or get_settings()
+    _ = pass_url  # reserved; attachment uses existing pass_png bytes only
+
+    if not settings.email_enabled:
+        logger.info(
+            "[EMAIL] Email disabled (EMAIL_ENABLED=false) — skipping send ticket=%s",
+            ticket_id,
+        )
+        raise EmailError("Email delivery is disabled (EMAIL_ENABLED=false)")
+
+    if not settings.resend_api_key.strip() or not settings.email_from.strip():
+        raise EmailError(
+            "Email is not configured. Set RESEND_API_KEY and EMAIL_FROM."
+        )
+
+    if not pass_png:
+        raise EmailError("Pass PNG bytes are missing — cannot attach event pass")
 
     subject = f"Your {settings.event_name} Event Pass"
     body = build_pass_email_body(
@@ -71,118 +93,76 @@ def send_pass_email(
         settings=settings,
     )
 
-    message = MIMEMultipart()
-    message["From"] = settings.email_from
-    message["To"] = to_email
-    message["Subject"] = subject
-    message.attach(MIMEText(body, "plain", "utf-8"))
+    filename = f"{ticket_id}-event-pass.png"
+    attachment_b64 = base64.b64encode(pass_png).decode("ascii")
 
-    attachment = MIMEImage(pass_png, _subtype="png")
-    attachment.add_header(
-        "Content-Disposition",
-        "attachment",
-        filename=f"{ticket_id}-event-pass.png",
+    params: resend.Emails.SendParams = {
+        "from": settings.email_from,
+        "to": [to_email],
+        "subject": subject,
+        "text": body,
+        "attachments": [
+            {
+                "filename": filename,
+                "content": attachment_b64,
+            }
+        ],
+    }
+
+    logger.info(
+        "[EMAIL] Resend send started ticket=%s to=%s from=%s attachment=%s bytes=%s timeout=%ss",
+        ticket_id,
+        _mask_email(to_email),
+        _mask_email(settings.email_from),
+        filename,
+        len(pass_png),
+        RESEND_TIMEOUT_SECONDS,
     )
-    message.attach(attachment)
-
-    host = settings.email_host
-    port = int(settings.email_port)
-    context = ssl.create_default_context()
-    server: smtplib.SMTP | None = None
 
     try:
-        logger.info(
-            "[EMAIL] SMTP connection started host=%s port=%s timeout=%ss ticket=%s to=%s",
-            host,
-            port,
-            SMTP_TIMEOUT_SECONDS,
+        resend.api_key = settings.resend_api_key
+
+        def _send() -> object:
+            return resend.Emails.send(params)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_send)
+            email = future.result(timeout=RESEND_TIMEOUT_SECONDS)
+
+    except FuturesTimeout as exc:
+        logger.error(
+            "[EMAIL] Resend send timed out after %ss ticket=%s",
+            RESEND_TIMEOUT_SECONDS,
             ticket_id,
-            _mask_email(to_email),
         )
-        try:
-            server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "[EMAIL] SMTP connection failed type=%s msg=%s",
-                type(exc).__name__,
-                exc,
-            )
-            raise EmailError(
-                f"SMTP connection failed ({type(exc).__name__}: {exc})"
-            ) from exc
-
-        logger.info("[EMAIL] SMTP connection established")
-
-        try:
-            server.ehlo()
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "[EMAIL] SMTP EHLO failed type=%s msg=%s",
-                type(exc).__name__,
-                exc,
-            )
-            raise EmailError(f"SMTP EHLO failed ({type(exc).__name__}: {exc})") from exc
-
-        logger.info("[EMAIL] STARTTLS started")
-        try:
-            server.starttls(context=context)
-            server.ehlo()
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "[EMAIL] STARTTLS failed type=%s msg=%s",
-                type(exc).__name__,
-                exc,
-            )
-            raise EmailError(f"STARTTLS failed ({type(exc).__name__}: {exc})") from exc
-
-        logger.info("[EMAIL] STARTTLS completed")
-
-        logger.info("[EMAIL] SMTP login started user=%s", _mask_email(settings.email_username))
-        try:
-            server.login(settings.email_username, settings.email_password)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "[EMAIL] SMTP login failed type=%s msg=%s",
-                type(exc).__name__,
-                exc,
-            )
-            raise EmailError(f"SMTP login failed ({type(exc).__name__}: {exc})") from exc
-
-        logger.info("[EMAIL] SMTP login completed")
-
-        logger.info("[EMAIL] Email send started ticket=%s", ticket_id)
-        try:
-            server.sendmail(settings.email_from, [to_email], message.as_string())
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "[EMAIL] Email send failed type=%s msg=%s",
-                type(exc).__name__,
-                exc,
-            )
-            raise EmailError(f"Email send failed ({type(exc).__name__}: {exc})") from exc
-
-        logger.info("[EMAIL] Email sent successfully ticket=%s", ticket_id)
-
+        raise EmailError(
+            f"Resend send timed out after {RESEND_TIMEOUT_SECONDS}s"
+        ) from exc
     except EmailError:
         raise
     except Exception as exc:  # noqa: BLE001
-        # Never log credentials
+        # Never log API key
         logger.error(
-            "[EMAIL] Unexpected email failure ticket=%s type=%s msg=%s",
+            "[EMAIL] Resend send failed ticket=%s type=%s msg=%s",
             ticket_id,
             type(exc).__name__,
             exc,
         )
-        raise EmailError("Failed to send event pass email") from exc
-    finally:
-        if server is not None:
-            try:
-                server.quit()
-            except Exception:  # noqa: BLE001
-                try:
-                    server.close()
-                except Exception:  # noqa: BLE001
-                    pass
+        raise EmailError(
+            f"Resend send failed ({type(exc).__name__}: {exc})"
+        ) from exc
+
+    email_id = None
+    if isinstance(email, dict):
+        email_id = email.get("id")
+    else:
+        email_id = getattr(email, "id", None)
+
+    logger.info(
+        "[EMAIL] Email sent successfully ticket=%s resend_id=%s",
+        ticket_id,
+        email_id or "(unknown)",
+    )
 
 
 def resolve_email_status(email: Optional[str]) -> str:
