@@ -65,7 +65,7 @@ HEADER_ALIASES: dict[str, list[str]] = {
     "Pass URL": ["Pass URL"],
     "Pass Generation Status": ["Pass Generation Status"],
     "Email Status": ["Email Status", "Email Sent"],
-    "WhatsApp": ["WhatsApp"],
+    "WhatsApp": ["WhatsApp Status", "WhatsApp"],
     "SMS": ["SMS"],
 }
 
@@ -242,7 +242,7 @@ def append_registration(
             "Pass URL": "",
             "Pass Generation Status": "PENDING",
             "Email Status": "NOT_PROVIDED" if not email else "PENDING",
-            "WhatsApp": "",
+            "WhatsApp": "NOT_ATTEMPTED",
             "SMS": "",
         }
 
@@ -311,6 +311,7 @@ def find_row_by_registration_id(
             "pass_url": get("Pass URL"),
             "pass_generation_status": get("Pass Generation Status"),
             "email_status": get("Email Status"),
+            "whatsapp_status": get("WhatsApp"),
         }
     except GoogleSheetsError:
         raise

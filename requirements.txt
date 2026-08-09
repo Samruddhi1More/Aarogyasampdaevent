@@ -8,4 +8,4 @@ google-auth==2.40.3
 python-dotenv==1.1.1
 Pillow==10.4.0
 qrcode==8.2
-cloudinary==1.44.1
+requests==2.32.5

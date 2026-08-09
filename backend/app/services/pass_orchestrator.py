@@ -1,7 +1,7 @@
-"""Orchestrates ticket → QR → pass → Cloudinary → sheet update → email.
+"""Orchestrates ticket → QR → pass → Cloudinary → sheet update → email → WhatsApp.
 
 Idempotent: reuses existing Ticket ID + Pass URL when present.
-Email failures never fail the overall registration.
+Email / WhatsApp failures never fail the overall registration.
 """
 
 from __future__ import annotations
@@ -25,7 +25,11 @@ from backend.app.services.google_sheets import (
 from backend.app.services.pass_service import PassGenerationError, generate_pass_png
 from backend.app.services.ticket_service import generate_ticket_id
 from backend.app.services.whatsapp_service import (
-    WHATSAPP_STATUS_NOT_IMPLEMENTED,
+    WHATSAPP_STATUS_FAILED,
+    WHATSAPP_STATUS_NOT_ATTEMPTED,
+    WHATSAPP_STATUS_NOT_PROVIDED,
+    WHATSAPP_STATUS_SENDING,
+    WHATSAPP_STATUS_SENT,
     get_whatsapp_notifier,
 )
 
@@ -48,6 +52,7 @@ class PassResult:
     pass_url: Optional[str] = None
     pass_generation_status: str = "PENDING"
     email_status: str = "NOT_PROVIDED"
+    whatsapp_status: str = WHATSAPP_STATUS_NOT_ATTEMPTED
     reused_existing: bool = False
 
 
@@ -60,6 +65,91 @@ def _unique_ticket_id(settings: Settings, attempts: int = 8) -> str:
     candidate = generate_ticket_id(length=10)
     remember_ticket_id(candidate)
     return candidate
+
+
+def _send_whatsapp_after_pass(
+    *,
+    registration_id: str,
+    phone: str,
+    name: str,
+    ticket_id: str,
+    pass_url: str,
+    existing_whatsapp_status: str,
+    settings: Settings,
+) -> str:
+    """Send WhatsApp using existing Cloudinary URL. Never regenerates the pass."""
+    prior = (existing_whatsapp_status or "").strip().upper()
+    if prior == WHATSAPP_STATUS_SENT:
+        logger.info(
+            "[BACKGROUND] WhatsApp skipped — already SENT for %s",
+            registration_id,
+        )
+        return WHATSAPP_STATUS_SENT
+
+    if not phone or not str(phone).strip():
+        _safe_sheet_update(
+            registration_id,
+            {"WhatsApp": WHATSAPP_STATUS_NOT_PROVIDED},
+            settings,
+        )
+        return WHATSAPP_STATUS_NOT_PROVIDED
+
+    if not pass_url:
+        _safe_sheet_update(
+            registration_id,
+            {"WhatsApp": WHATSAPP_STATUS_FAILED},
+            settings,
+        )
+        return WHATSAPP_STATUS_FAILED
+
+    _safe_sheet_update(
+        registration_id,
+        {"WhatsApp": WHATSAPP_STATUS_SENDING},
+        settings,
+    )
+
+    try:
+        outcome = get_whatsapp_notifier(settings).send_pass_notification(
+            phone=phone,
+            attendee_name=name,
+            ticket_id=ticket_id,
+            pass_url=pass_url,
+        )
+        status = outcome.status or WHATSAPP_STATUS_FAILED
+        # Dry-run with disabled WATI → NOT_ATTEMPTED (do not claim SENT)
+        if outcome.dry_run and status == WHATSAPP_STATUS_NOT_ATTEMPTED:
+            _safe_sheet_update(
+                registration_id,
+                {"WhatsApp": WHATSAPP_STATUS_NOT_ATTEMPTED},
+                settings,
+            )
+            logger.info(
+                "[BACKGROUND] WhatsApp dry-run complete for %s: %s",
+                registration_id,
+                outcome.message,
+            )
+            return WHATSAPP_STATUS_NOT_ATTEMPTED
+
+        _safe_sheet_update(registration_id, {"WhatsApp": status}, settings)
+        logger.info(
+            "[BACKGROUND] WhatsApp finished for %s status=%s msg=%s",
+            registration_id,
+            status,
+            outcome.message,
+        )
+        return status
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "[BACKGROUND] WhatsApp failed type=%s msg=%s",
+            type(exc).__name__,
+            exc,
+        )
+        _safe_sheet_update(
+            registration_id,
+            {"WhatsApp": WHATSAPP_STATUS_FAILED},
+            settings,
+        )
+        return WHATSAPP_STATUS_FAILED
 
 
 def process_pass_for_registration(
@@ -76,19 +166,17 @@ def process_pass_for_registration(
     """Generate/upload pass and update the existing sheet row.
 
     Never creates a duplicate registration row.
-
-    For brand-new registrations, pass ``skip_lookup=True`` to avoid an extra
-    Sheets read right after append (quota-friendly).
     """
     settings = settings or get_settings()
     result = PassResult(email_status="NOT_PROVIDED" if not email else "PENDING")
 
     logger.info(
-        "[BACKGROUND] Started processing registration: %s email=%s cloudinary_configured=%s email_configured=%s",
+        "[BACKGROUND] Started processing registration: %s email=%s cloudinary_configured=%s email_configured=%s wati_enabled=%s",
         registration_id,
         _mask_email(email),
         settings.cloudinary_configured,
         settings.email_configured,
+        settings.wati_enabled,
     )
 
     existing = existing_row
@@ -110,6 +198,7 @@ def process_pass_for_registration(
         result.pass_generation_status = existing.get("pass_generation_status") or "SUCCESS"
         result.reused_existing = True
         result.email_status = existing.get("email_status") or result.email_status
+        prior_wa = existing.get("whatsapp_status") or ""
         logger.info(
             "[BACKGROUND] Reusing existing ticket=%s pass_url_set=%s",
             result.ticket_id,
@@ -131,6 +220,16 @@ def process_pass_for_registration(
                 {"Email Status": "NOT_PROVIDED"},
                 settings,
             )
+
+        result.whatsapp_status = _send_whatsapp_after_pass(
+            registration_id=registration_id,
+            phone=phone,
+            name=name,
+            ticket_id=result.ticket_id or "",
+            pass_url=result.pass_url or "",
+            existing_whatsapp_status=prior_wa,
+            settings=settings,
+        )
         return result
 
     ticket_id = (
@@ -143,6 +242,7 @@ def process_pass_for_registration(
     result.ticket_id = ticket_id
     logger.info("[BACKGROUND] Ticket generated: %s", ticket_id)
 
+    pass_png: bytes | None = None
     try:
         pass_png, qr_url = generate_pass_png(
             attendee_name=name,
@@ -171,7 +271,7 @@ def process_pass_for_registration(
             "QR URL": qr_url,
             "Pass URL": pass_url,
             "Pass Generation Status": "SUCCESS",
-            "WhatsApp": WHATSAPP_STATUS_NOT_IMPLEMENTED,
+            "WhatsApp": WHATSAPP_STATUS_NOT_ATTEMPTED,
         }
         if not email:
             sheet_fields["Email Status"] = "NOT_PROVIDED"
@@ -193,10 +293,12 @@ def process_pass_for_registration(
             "Ticket ID": ticket_id,
             "Pass Generation Status": "FAILED",
             "Email Status": "NOT_PROVIDED" if not email else "FAILED",
+            "WhatsApp": WHATSAPP_STATUS_FAILED,
         }
         if result.qr_url:
             fail_fields["QR URL"] = result.qr_url
         result.email_status = fail_fields["Email Status"]
+        result.whatsapp_status = WHATSAPP_STATUS_FAILED
         _safe_sheet_update(registration_id, fail_fields, settings)
         return result
     except GoogleSheetsError as exc:
@@ -218,12 +320,14 @@ def process_pass_for_registration(
             {
                 "Ticket ID": ticket_id,
                 "Pass Generation Status": "FAILED",
+                "WhatsApp": WHATSAPP_STATUS_FAILED,
             },
             settings,
         )
+        result.whatsapp_status = WHATSAPP_STATUS_FAILED
         return result
 
-    if email and result.pass_generation_status == "SUCCESS" and result.pass_url:
+    if email and result.pass_generation_status == "SUCCESS" and result.pass_url and pass_png:
         logger.info("[BACKGROUND] Email sending started to=%s", _mask_email(email))
         result.email_status = _send_email_with_bytes(
             email=email,
@@ -243,15 +347,20 @@ def process_pass_for_registration(
             bool(result.pass_url),
         )
 
-    try:
-        get_whatsapp_notifier().send_pass_notification(
+    # WhatsApp only after a valid Cloudinary Pass URL exists
+    if result.pass_generation_status == "SUCCESS" and result.pass_url:
+        prior_wa = (existing or {}).get("whatsapp_status") or WHATSAPP_STATUS_NOT_ATTEMPTED
+        result.whatsapp_status = _send_whatsapp_after_pass(
+            registration_id=registration_id,
             phone=phone,
-            attendee_name=name,
+            name=name,
             ticket_id=ticket_id,
-            pass_url=result.pass_url or "",
+            pass_url=result.pass_url,
+            existing_whatsapp_status=prior_wa,
+            settings=settings,
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("WhatsApp stub failed for %s", registration_id)
+    else:
+        result.whatsapp_status = WHATSAPP_STATUS_FAILED
 
     return result
 
@@ -275,14 +384,12 @@ def process_registration_after_submission(
             preassigned_ticket_id=ticket_id,
         )
     except Exception as exc:  # noqa: BLE001
-        # Never raise out of background task into the request lifecycle
         logger.exception(
             "[BACKGROUND] Unhandled failure for %s type=%s msg=%s",
             registration_id,
             type(exc).__name__,
             exc,
         )
-
 
 
 def _send_email_with_bytes(
@@ -332,11 +439,6 @@ def _send_email_safe(
             ticket_id=ticket_id,
             settings=settings,
         )
-        logger.info(
-            "[diag] step=10 email_retry attachment_bytes=%s to=%s",
-            len(pass_png),
-            _mask_email(email),
-        )
         return _send_email_with_bytes(
             email=email,
             name=name,
@@ -347,7 +449,7 @@ def _send_email_safe(
         )
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "[diag] step=14 email_retry_failed type=%s msg=%s",
+            "[BACKGROUND] Email retry failed type=%s msg=%s",
             type(exc).__name__,
             exc,
         )
@@ -363,13 +465,13 @@ def _safe_sheet_update(
     try:
         update_registration_fields(registration_id, fields, settings=settings)
         logger.info(
-            "[diag] step=9 google_sheet_updated id=%s fields=%s",
+            "[BACKGROUND] Google Sheet updated id=%s fields=%s",
             registration_id,
             list(fields.keys()),
         )
     except GoogleSheetsError as exc:
         logger.error(
-            "[diag] step=9 google_sheet_update FAILED type=%s msg=%s fields=%s",
+            "[BACKGROUND] Google Sheet update FAILED type=%s msg=%s fields=%s",
             type(exc).__name__,
             exc,
             list(fields),

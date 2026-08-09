@@ -26,11 +26,11 @@ class Settings(BaseSettings):
     google_worksheet_name: str = "Sheet1"
     google_service_account_file: str
 
-    # Event details (replace placeholders via .env)
+    # Event details (replace via .env)
     event_name: str = "Sahjeevan Puraskar 2026"
-    event_date: str = "PLACEHOLDER_EVENT_DATE"
-    event_time: str = "PLACEHOLDER_EVENT_TIME"
-    event_venue: str = "PLACEHOLDER_VENUE"
+    event_date: str = "29 August 2026"
+    event_time: str = "2:30 PM"
+    event_venue: str = "Dnyaneshwar Sabhagruha, Marathwada Mitra Mandal Law College"
     event_organizer: str = "PLACEHOLDER_ORGANIZER_NAME"
     ngo_name: str = "Aarogyasampada 360 Degree"
     pass_thank_you: str = (
@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     email_username: str = ""
     email_password: str = ""
     email_from: str = ""
+
+    # WATI WhatsApp (disabled by default — no real sends)
+    wati_enabled: bool = False
+    wati_api_endpoint: str = ""
+    wati_api_token: str = ""
+    wati_whatsapp_number: str = "15553177267"
+    wati_template_name: str = "sahjeevan_event_pass"
+    wati_template_language: str = "en_GB"
+    wati_broadcast_name: str = "Sahjeevan_Puraskar_2026"
+    wati_test_phone: str = ""
+    # Explicit template customParam names (must match approved WATI template)
+    wati_param_attendee_name: str = "name"
+    wati_param_ticket_id: str = "ticket_id"
+    wati_param_header_image: str = "header_image"
 
     @field_validator("google_service_account_file")
     @classmethod
@@ -119,6 +133,16 @@ class Settings(BaseSettings):
             and self.email_username
             and self.email_password
             and self.email_from
+        )
+
+    @property
+    def wati_configured(self) -> bool:
+        return bool(
+            self.wati_api_endpoint.strip()
+            and self.wati_api_token.strip()
+            and self.wati_whatsapp_number.strip()
+            and self.wati_template_name.strip()
+            and self.wati_broadcast_name.strip()
         )
 
 
