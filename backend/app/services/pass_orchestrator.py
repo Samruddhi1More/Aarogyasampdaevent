@@ -78,10 +78,9 @@ def _send_whatsapp_after_pass(
     settings: Settings,
     pass_png: bytes | None = None,
 ) -> str:
-    """Send WhatsApp using the SAME personalized pass as email.
+    """Send WhatsApp via approved WATI template + Cloudinary Pass URL as {{image}}.
 
-    Uses Cloudinary Pass URL for the template header and the exact PNG bytes
-    (same as the email attachment) via WATI sendSessionFile. Never regenerates.
+    Uses the same Cloudinary URL produced for this registration (never regenerates).
     """
     prior = (existing_whatsapp_status or "").strip().upper()
     if prior == WHATSAPP_STATUS_SENT:
@@ -108,9 +107,8 @@ def _send_whatsapp_after_pass(
         return WHATSAPP_STATUS_FAILED
 
     logger.info(
-        "[BACKGROUND] WhatsApp using same pass as email ticket=%s bytes=%s url_prefix=%s",
+        "[BACKGROUND] WhatsApp using Cloudinary pass URL ticket=%s url_prefix=%s",
         ticket_id,
-        len(pass_png) if pass_png else 0,
         pass_url[:80],
     )
     if ticket_id and ticket_id not in (pass_url or ""):

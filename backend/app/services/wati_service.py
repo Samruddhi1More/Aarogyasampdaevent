@@ -1,16 +1,16 @@
 """WATI WhatsApp template messaging for event passes.
 
 Official APIs used:
-  1) GET  {WATI_API_ENDPOINT}/api/v1/getMessageTemplates
+  1) GET  {WATI_API_ENDPOINT}/api/v1/getMessageTemplates  (static-header guard)
   2) POST {WATI_API_ENDPOINT}/api/v1/updateContactAttributes/{whatsappNumber}
+     — optional, non-fatal
   3) POST {WATI_API_ENDPOINT}/api/v1/sendTemplateMessages
-  4) POST {WATI_API_ENDPOINT}/api/v1/updateChatStatus  (re-open ticket)
-  5) POST {WATI_API_ENDPOINT}/api/v1/sendSessionFile/{whatsappNumber}
-     — delivers the SAME personalized PNG bytes used for email
+     — sole WhatsApp delivery: approved template + dynamic {{image}}
 
 The pass PNG is generated once in pass_orchestrator, uploaded to Cloudinary,
-and that Pass URL + PNG bytes are passed into this service. This module never
-generates a pass and never uses a static/placeholder image URL.
+and that Pass URL is passed into this service as the IMAGE header. This module
+never generates a pass, never uses a static/sample image URL, and never sends
+a second session-file copy of the PNG.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from urllib.parse import quote
 
 import requests
 
@@ -28,13 +27,10 @@ from backend.app.config import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 WATI_SEND_TEMPLATE_PATH = "/api/v1/sendTemplateMessages"
-WATI_UPDATE_CHAT_STATUS_PATH = "/api/v1/updateChatStatus"
-WATI_SEND_SESSION_FILE_PATH = "/api/v1/sendSessionFile"
 WATI_UPDATE_CONTACT_ATTRIBUTES_PATH = "/api/v1/updateContactAttributes"
 WATI_GET_MESSAGE_TEMPLATES_PATH = "/api/v1/getMessageTemplates"
 
 # Approved template uses {{image}} for the dynamic IMAGE header.
-# Extra aliases are only used if explicitly listed in WATI_PARAM_HEADER_IMAGE.
 _DEFAULT_HEADER_PARAMS = ("image",)
 
 _TICKET_IN_URL_RE = re.compile(r"SAP-[A-Z0-9]+", re.IGNORECASE)
@@ -105,7 +101,6 @@ def _safe_url_for_log(url: str) -> str:
     clean = (url or "").strip()
     if not clean:
         return "(empty)"
-    # Prefer public_id tail (…/passes/SAP-XXXX.png)
     match = _TICKET_IN_URL_RE.search(clean)
     ticket_bit = match.group(0) if match else "?"
     host = "cloudinary" if "cloudinary.com" in clean else "other"
@@ -145,7 +140,6 @@ def _header_param_names(settings: Settings) -> list[str]:
         if n.strip()
     ]
     if configured:
-        # Preserve order, drop duplicates
         names: list[str] = []
         for name in configured:
             if name not in names:
@@ -274,12 +268,7 @@ def assert_template_allows_dynamic_image(
     *,
     ticket_id: str,
 ) -> None:
-    """Refuse send when the approved template IMAGE header is a fixed sample URL.
-
-    A static header (no {{image}} mapping + fixed Cloudinary link) always
-    delivers the sample pass regardless of customParams. Personalized passes
-    require a template with dynamic header {{image}}.
-    """
+    """Refuse send when the approved template IMAGE header is a fixed sample URL."""
     template = _fetch_template_definition(settings)
     if not template:
         logger.warning(
@@ -337,8 +326,7 @@ def assert_template_allows_dynamic_image(
         "Approved WATI template IMAGE header is STATIC (not a {{image}} "
         f"variable). Locked sample={_safe_url_for_log(link)} "
         f"locked_ticket={locked_ticket or '?'}. "
-        "customParams cannot override Meta's approved sample media. "
-        "Use template aarogyasampaevent (or another) with dynamic {{image}} header."
+        "Use template aarogyasampaevent with dynamic {{image}} header."
     )
 
 
@@ -349,11 +337,9 @@ def _update_contact_pass_attributes(
     ticket_id: str,
     settings: Settings,
 ) -> None:
-    """Write the current Cloudinary Pass URL onto the WATI contact.
+    """Best-effort: write current Cloudinary Pass URL onto the WATI contact.
 
-    Personalized media campaigns resolve {{image}}/{{qr_url}} from contact
-    attributes. Updating before sendTemplateMessages prevents a prior
-    registration's URL (e.g. SAP-FPTM7STD) from being reused for this number.
+    Non-fatal — missing contacts or API errors must not block template send.
     """
     url = (
         f"{_base_url(settings)}{WATI_UPDATE_CONTACT_ATTRIBUTES_PATH}/{recipient}"
@@ -381,123 +367,10 @@ def _update_contact_pass_attributes(
         )
     except requests.RequestException as exc:
         logger.warning(
-            "[WATI] updateContactAttributes failed type=%s msg=%s",
+            "[WATI] updateContactAttributes failed (non-fatal) type=%s msg=%s",
             type(exc).__name__,
             exc,
         )
-
-
-def _download_pass_bytes(pass_url: str) -> bytes:
-    try:
-        response = requests.get(pass_url, timeout=45)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        raise WatiError(
-            f"Failed to download personalized pass for WhatsApp ({type(exc).__name__})"
-        ) from exc
-    if not response.content:
-        raise WatiError("Downloaded pass image is empty")
-    return response.content
-
-
-def _reopen_chat(*, recipient: str, settings: Settings) -> None:
-    """Best-effort: set WATI ticket status to OPEN so session media can be sent."""
-    url = f"{_base_url(settings)}{WATI_UPDATE_CHAT_STATUS_PATH}"
-    payload = {
-        "whatsappNumber": recipient,
-        "ticketStatus": "OPEN",
-        "channelPhoneNumber": settings.wati_whatsapp_number,
-    }
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=_auth_headers(settings),
-            timeout=30,
-        )
-        body: dict[str, Any] = {}
-        try:
-            body = response.json() if response.content else {}
-        except ValueError:
-            body = {}
-        logger.info(
-            "[WATI] updateChatStatus OPEN to=%s %s",
-            mask_phone(recipient),
-            _safe_error_summary(body if isinstance(body, dict) else {}, response.status_code),
-        )
-    except requests.RequestException as exc:
-        logger.warning(
-            "[WATI] updateChatStatus failed type=%s msg=%s",
-            type(exc).__name__,
-            exc,
-        )
-
-
-def _send_session_pass_file(
-    *,
-    recipient: str,
-    pass_png: bytes,
-    ticket_id: str,
-    settings: Settings,
-) -> None:
-    """Send the exact personalized PNG (same bytes as email) into the WA chat."""
-    if not pass_png:
-        raise WatiError("Pass PNG bytes missing — cannot send WhatsApp pass image")
-
-    caption = f"Your event pass ({ticket_id})"
-    url = (
-        f"{_base_url(settings)}{WATI_SEND_SESSION_FILE_PATH}/{recipient}"
-        f"?caption={quote(caption)}"
-    )
-    filename = f"{ticket_id}-event-pass.png"
-    logger.info(
-        "[WATI] Sending personalized pass file to=%s filename=%s bytes=%s",
-        mask_phone(recipient),
-        filename,
-        len(pass_png),
-    )
-    try:
-        response = requests.post(
-            url,
-            headers=_auth_headers(settings, json_body=False),
-            files={"file": (filename, pass_png, "image/png")},
-            timeout=60,
-        )
-    except requests.RequestException as exc:
-        raise WatiError(
-            f"WATI sendSessionFile request error ({type(exc).__name__})"
-        ) from exc
-
-    body: dict[str, Any] = {}
-    try:
-        body = response.json() if response.content else {}
-    except ValueError:
-        body = {"raw": "non-json response"}
-
-    summary = _safe_error_summary(
-        body if isinstance(body, dict) else {}, response.status_code
-    )
-    logger.info("[WATI] sendSessionFile response %s", summary)
-
-    if response.status_code >= 400:
-        raise WatiError(summary)
-
-    if isinstance(body, dict) and "result" in body and body.get("result") is not True:
-        raise WatiError(summary)
-
-    if isinstance(body, dict) and "result" not in body:
-        message = body.get("message")
-        ok = isinstance(message, dict) or body.get("ok") is True
-        if not ok:
-            raise WatiError(
-                "WATI sendSessionFile returned unclear success "
-                f"http={response.status_code} keys={list(body.keys())[:12]}"
-            )
-
-    logger.info(
-        "[WATI] Personalized pass file sent successfully to=%s",
-        mask_phone(recipient),
-    )
 
 
 def send_event_pass(
@@ -509,7 +382,12 @@ def send_event_pass(
     pass_png: bytes | None = None,
     settings: Settings | None = None,
 ) -> WatiSendResult:
-    """Send approved template with Cloudinary Pass URL, then same PNG as email."""
+    """Send approved template with the registration's Cloudinary Pass URL as {{image}}.
+
+    ``pass_png`` is accepted for call-site compatibility but unused — the template
+    IMAGE header is the sole WhatsApp delivery path (no session-file follow-up).
+    """
+    _ = pass_png  # unused; template {{image}} uses pass_url only
     settings = settings or get_settings()
 
     try:
@@ -597,7 +475,6 @@ def send_event_pass(
             payload=payload,
         )
 
-    # Block the known static-sample-header failure mode before calling WATI.
     try:
         assert_template_allows_dynamic_image(settings, ticket_id=ticket_id)
     except WatiError as exc:
@@ -610,19 +487,7 @@ def send_event_pass(
             payload=payload,
         )
 
-    try:
-        png_bytes = pass_png if pass_png else _download_pass_bytes(pass_url_clean)
-    except WatiError as exc:
-        logger.error("[WATI] WhatsApp send failed — %s", exc)
-        return WatiSendResult(
-            success=False,
-            status="FAILED",
-            message=str(exc),
-            normalized_phone=recipient,
-            payload=payload,
-        )
-
-    # Contact attributes first (WATI personalized media resolves from contact data).
+    # Optional: sync contact media attribute (non-fatal if contact missing).
     _update_contact_pass_attributes(
         recipient=recipient,
         pass_url=pass_url_clean,
@@ -701,55 +566,15 @@ def send_event_pass(
             response_body=body,
         )
 
-    # Best-effort: same PNG as email via session file (needs open 24h customer window)
-    _reopen_chat(recipient=recipient, settings=settings)
-    personalized_ok = False
-    personalized_error = ""
-    try:
-        _send_session_pass_file(
-            recipient=recipient,
-            pass_png=png_bytes,
-            ticket_id=ticket_id,
-            settings=settings,
-        )
-        personalized_ok = True
-    except WatiError as exc:
-        personalized_error = str(exc)
-        logger.warning(
-            "[WATI] Session PNG follow-up failed (template header URL was sent): %s",
-            exc,
-        )
-
-    if personalized_ok:
-        logger.info(
-            "[WATI] WhatsApp send successful ticket=%s template=%s "
-            "(dynamic Cloudinary header + session PNG)",
-            ticket_id,
-            settings.wati_template_name,
-        )
-        return WatiSendResult(
-            success=True,
-            status="SENT",
-            message="WATI template + personalized pass file sent",
-            normalized_phone=recipient,
-            payload=payload,
-            response_body=body,
-        )
-
     logger.info(
-        "[WATI] WhatsApp send successful ticket=%s template=%s "
-        "(Cloudinary {{image}} header; session PNG follow-up: %s)",
+        "[WATI] WhatsApp send successful ticket=%s template=%s",
         ticket_id,
         settings.wati_template_name,
-        personalized_error or "skipped",
     )
     return WatiSendResult(
         success=True,
         status="SENT",
-        message=(
-            "WATI template sent with Cloudinary Pass URL for this ticket; "
-            f"personalized PNG follow-up failed: {personalized_error}"
-        ),
+        message="WATI template sent with Cloudinary Pass URL",
         normalized_phone=recipient,
         payload=payload,
         response_body=body,
