@@ -76,8 +76,13 @@ def _send_whatsapp_after_pass(
     pass_url: str,
     existing_whatsapp_status: str,
     settings: Settings,
+    pass_png: bytes | None = None,
 ) -> str:
-    """Send WhatsApp using existing Cloudinary URL. Never regenerates the pass."""
+    """Send WhatsApp using the SAME personalized pass as email.
+
+    Uses Cloudinary Pass URL for the template header and the exact PNG bytes
+    (same as the email attachment) via WATI sendSessionFile. Never regenerates.
+    """
     prior = (existing_whatsapp_status or "").strip().upper()
     if prior == WHATSAPP_STATUS_SENT:
         logger.info(
@@ -102,6 +107,24 @@ def _send_whatsapp_after_pass(
         )
         return WHATSAPP_STATUS_FAILED
 
+    logger.info(
+        "[BACKGROUND] WhatsApp using same pass as email ticket=%s bytes=%s url_prefix=%s",
+        ticket_id,
+        len(pass_png) if pass_png else 0,
+        pass_url[:80],
+    )
+    if ticket_id and ticket_id not in (pass_url or ""):
+        logger.error(
+            "[BACKGROUND] Refusing WhatsApp — pass_url does not contain ticket=%s",
+            ticket_id,
+        )
+        _safe_sheet_update(
+            registration_id,
+            {"WhatsApp": WHATSAPP_STATUS_FAILED},
+            settings,
+        )
+        return WHATSAPP_STATUS_FAILED
+
     _safe_sheet_update(
         registration_id,
         {"WhatsApp": WHATSAPP_STATUS_SENDING},
@@ -114,6 +137,7 @@ def _send_whatsapp_after_pass(
             attendee_name=name,
             ticket_id=ticket_id,
             pass_url=pass_url,
+            pass_png=pass_png,
         )
         status = outcome.status or WHATSAPP_STATUS_FAILED
         # Dry-run with disabled WATI → NOT_ATTEMPTED (do not claim SENT)
@@ -262,8 +286,22 @@ def process_pass_for_registration(
         result.pass_url = pass_url
         result.pass_generation_status = "SUCCESS"
         logger.info(
-            "[BACKGROUND] Cloudinary upload successful public_id=%s",
+            "[BACKGROUND] Cloudinary upload successful public_id=%s version=%s url_prefix=%s",
             upload.get("public_id"),
+            upload.get("version"),
+            pass_url[:80],
+        )
+        logger.info(
+            "[BACKGROUND] Cloudinary pass URL generated for ticket=%s public_id=%s",
+            ticket_id,
+            upload.get("public_id"),
+        )
+        logger.info(
+            "[BACKGROUND] Pass event data event=%s date=%s time=%s venue=%s",
+            settings.event_name,
+            settings.event_date,
+            settings.event_time,
+            (settings.event_venue or "")[:60],
         )
 
         sheet_fields = {
@@ -327,6 +365,22 @@ def process_pass_for_registration(
         result.whatsapp_status = WHATSAPP_STATUS_FAILED
         return result
 
+    # WhatsApp only after a valid Cloudinary Pass URL exists (independent of email)
+    if result.pass_generation_status == "SUCCESS" and result.pass_url:
+        prior_wa = (existing or {}).get("whatsapp_status") or WHATSAPP_STATUS_NOT_ATTEMPTED
+        result.whatsapp_status = _send_whatsapp_after_pass(
+            registration_id=registration_id,
+            phone=phone,
+            name=name,
+            ticket_id=ticket_id,
+            pass_url=result.pass_url,
+            existing_whatsapp_status=prior_wa,
+            settings=settings,
+            pass_png=pass_png,
+        )
+    else:
+        result.whatsapp_status = WHATSAPP_STATUS_FAILED
+
     if email and result.pass_generation_status == "SUCCESS" and result.pass_url and pass_png:
         logger.info("[BACKGROUND] Email sending started to=%s", _mask_email(email))
         result.email_status = _send_email_with_bytes(
@@ -346,21 +400,6 @@ def process_pass_for_registration(
             result.pass_generation_status,
             bool(result.pass_url),
         )
-
-    # WhatsApp only after a valid Cloudinary Pass URL exists
-    if result.pass_generation_status == "SUCCESS" and result.pass_url:
-        prior_wa = (existing or {}).get("whatsapp_status") or WHATSAPP_STATUS_NOT_ATTEMPTED
-        result.whatsapp_status = _send_whatsapp_after_pass(
-            registration_id=registration_id,
-            phone=phone,
-            name=name,
-            ticket_id=ticket_id,
-            pass_url=result.pass_url,
-            existing_whatsapp_status=prior_wa,
-            settings=settings,
-        )
-    else:
-        result.whatsapp_status = WHATSAPP_STATUS_FAILED
 
     return result
 

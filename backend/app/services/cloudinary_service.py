@@ -43,9 +43,16 @@ def upload_pass_png(
     ticket_id: str,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
-    """Upload a pass PNG and return Cloudinary result including secure_url."""
+    """Upload the exact personalized pass PNG and return a versioned secure_url.
+
+    Each ticket_id maps to its own public_id. overwrite+invalidate ensures an
+    old CDN-cached object cannot be served for a re-upload of the same ticket.
+    """
     settings = settings or get_settings()
     _configure(settings)
+
+    if not png_bytes:
+        raise CloudinaryError("Cannot upload empty pass PNG")
 
     public_id = f"{settings.cloudinary_folder.rstrip('/')}/{ticket_id}"
     logger.info(
@@ -61,9 +68,11 @@ def upload_pass_png(
             public_id=public_id,
             folder=None,  # folder already in public_id
             overwrite=True,
+            invalidate=True,
             resource_type="image",
             format="png",
             unique_filename=False,
+            use_filename=False,
         )
     except Exception as exc:  # noqa: BLE001
         logger.error(
@@ -73,17 +82,25 @@ def upload_pass_png(
         )
         raise CloudinaryError("Failed to upload event pass") from exc
 
-    secure_url = result.get("secure_url")
+    secure_url = (result.get("secure_url") or "").strip()
     if not secure_url:
         raise CloudinaryError("Cloudinary upload returned no secure URL")
 
+    # Prefer an explicit .png delivery URL for WhatsApp/Meta media fetchers
+    if not secure_url.lower().endswith(".png"):
+        secure_url = f"{secure_url}.png"
+
+    version = result.get("version")
     logger.info(
-        "[diag] step=7 cloudinary_upload_succeeded public_id=%s url_prefix=%s",
+        "[diag] step=7 cloudinary_upload_succeeded public_id=%s version=%s url_prefix=%s",
         result.get("public_id"),
-        secure_url[:64],
+        version,
+        secure_url[:72],
     )
     return {
         "secure_url": secure_url,
         "public_id": result.get("public_id"),
         "asset_id": result.get("asset_id"),
+        "version": version,
+        "bytes": result.get("bytes") or len(png_bytes),
     }

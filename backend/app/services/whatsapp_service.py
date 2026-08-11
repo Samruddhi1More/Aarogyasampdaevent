@@ -45,6 +45,7 @@ class WhatsAppNotifier(ABC):
         attendee_name: str,
         ticket_id: str,
         pass_url: str,
+        pass_png: bytes | None = None,
     ) -> WhatsAppSendOutcome:
         raise NotImplementedError
 
@@ -62,6 +63,7 @@ class WatiWhatsAppNotifier(WhatsAppNotifier):
         attendee_name: str,
         ticket_id: str,
         pass_url: str,
+        pass_png: bytes | None = None,
     ) -> WhatsAppSendOutcome:
         if not phone or not str(phone).strip():
             return WhatsAppSendOutcome(
@@ -80,6 +82,7 @@ class WatiWhatsAppNotifier(WhatsAppNotifier):
             attendee_name=attendee_name,
             ticket_id=ticket_id,
             pass_url=pass_url,
+            pass_png=pass_png,
             settings=self.settings,
         )
         return WhatsAppSendOutcome(

@@ -105,8 +105,32 @@ def generate_pass_png(
     """Render a high-resolution portrait pass.
 
     Returns (png_bytes, qr_url).
+    Event name/date/time/venue come from Settings (EVENT_* env vars).
     """
     settings = settings or get_settings()
+
+    # Refuse to render unresolved placeholders into the final pass
+    for label, value in (
+        ("EVENT_NAME", settings.event_name),
+        ("EVENT_DATE", settings.event_date),
+        ("EVENT_TIME", settings.event_time),
+        ("EVENT_VENUE", settings.event_venue),
+    ):
+        if not (value or "").strip():
+            raise PassGenerationError(f"{label} is empty — cannot generate pass")
+        if "PLACEHOLDER" in value.upper():
+            raise PassGenerationError(
+                f"{label} still contains PLACEHOLDER — update .env before generating passes"
+            )
+
+    logger.info(
+        "[PASS] Rendering personalized pass ticket=%s event=%s date=%s time=%s venue=%s",
+        ticket_id,
+        settings.event_name,
+        settings.event_date,
+        settings.event_time,
+        (settings.event_venue or "")[:60],
+    )
 
     try:
         width, height = 1080, 1920

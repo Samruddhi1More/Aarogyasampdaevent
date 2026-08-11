@@ -55,19 +55,20 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from: str = ""
 
-    # WATI WhatsApp (disabled by default — no real sends)
+    # WATI WhatsApp (enable only when endpoint/token/template are set)
     wati_enabled: bool = False
     wati_api_endpoint: str = ""
     wati_api_token: str = ""
     wati_whatsapp_number: str = "15553177267"
-    wati_template_name: str = "sahjeevan_event_pass"
-    wati_template_language: str = "en_GB"
-    wati_broadcast_name: str = "Sahjeevan_Puraskar_2026"
+    wati_template_name: str = "aarogyasampaevent"
+    wati_template_language: str = "en"
+    wati_broadcast_name: str = "aarogyasampaevent"
     wati_test_phone: str = ""
-    # Explicit template customParam names (must match approved WATI template)
-    wati_param_attendee_name: str = "name"
-    wati_param_ticket_id: str = "ticket_id"
-    wati_param_header_image: str = "header_image"
+    # Approved template: {{image}} header, {{1}} name, {{2}} ticket_id
+    wati_param_attendee_name: str = "1"
+    wati_param_ticket_id: str = "2"
+    # Must match the dynamic IMAGE header variable on the approved template.
+    wati_param_header_image: str = "image"
 
     @field_validator("google_service_account_file")
     @classmethod
@@ -138,6 +139,7 @@ class Settings(BaseSettings):
             and self.wati_api_token.strip()
             and self.wati_whatsapp_number.strip()
             and self.wati_template_name.strip()
+            and self.wati_template_language.strip()
             and self.wati_broadcast_name.strip()
         )
 
