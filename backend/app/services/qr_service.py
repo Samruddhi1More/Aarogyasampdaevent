@@ -15,10 +15,10 @@ from backend.app.config import Settings, get_settings
 
 
 def build_pass_qr_url(ticket_id: str, settings: Settings | None = None) -> str:
-    """Public verification URL embedded in the QR code (no PII)."""
+    """URL embedded in the QR code — opens the main website (no ticket path)."""
     settings = settings or get_settings()
-    base = settings.pass_base_url.rstrip("/")
-    return f"{base}/{ticket_id}"
+    _ = ticket_id  # retained for call-site compatibility
+    return settings.pass_base_url.rstrip("/")
 
 
 def generate_qr_png_bytes(
@@ -28,7 +28,7 @@ def generate_qr_png_bytes(
     box_size: int = 12,
     border: int = 2,
 ) -> tuple[bytes, str]:
-    """Generate a QR PNG for the pass URL.
+    """Generate a QR PNG encoding the main website URL.
 
     Returns (png_bytes, qr_url).
     """

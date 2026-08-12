@@ -37,8 +37,8 @@ class Settings(BaseSettings):
         "Thank you for registering.\nWe look forward to welcoming you."
     )
 
-    # Pass / QR
-    pass_base_url: str = "https://aarogyasampada360.com/pass"
+    # QR destination (embedded in personalized pass) — main website
+    pass_base_url: str = "https://aarogyasampada360.com"
     cloudinary_folder: str = "sahjeevan-puraskar-2026/passes"
 
     # Logo paths (absolute or relative to project root)

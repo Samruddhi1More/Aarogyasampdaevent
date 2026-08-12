@@ -94,3 +94,14 @@ class RegistrationResponse(BaseModel):
     pass_generation_status: Optional[str] = None
     email_status: Optional[str] = None
     email_provided: bool = False
+
+
+class PassStatusResponse(BaseModel):
+    """Pollable pass readiness for the post-registration Download Pass button."""
+
+    registration_id: str
+    ticket_id: Optional[str] = None
+    pass_generation_status: str = "PENDING"
+    pass_url: Optional[str] = None
+    download_ready: bool = False
+    message: str = ""

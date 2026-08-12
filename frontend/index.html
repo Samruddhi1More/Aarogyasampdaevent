@@ -161,17 +161,26 @@
               </svg>
             </div>
             <h2 id="success-title">Registration successful!</h2>
-            <p class="success-copy" id="success-copy">Your event pass is being prepared.</p>
-            <p class="meta-chip" id="registration-id"></p>
-            <p class="meta-chip" id="ticket-id" hidden></p>
+            <p class="success-copy" id="success-copy">
+              Your registration has been confirmed. Your event pass is being prepared.
+            </p>
+            <p class="meta-chip ticket-chip" id="ticket-id" hidden></p>
+            <div class="pass-ready-block" id="pass-ready-block" hidden>
+              <h3 class="pass-ready-heading" id="pass-ready-heading">
+                Your Event Pass Is Ready
+              </h3>
+              <p class="pass-ready-copy" id="pass-status-note">
+                Download your personalized pass below and keep it available on your
+                phone for entry at the event.
+              </p>
+            </div>
             <a
               class="btn btn-primary success-pass-link"
-              id="pass-link"
+              id="pass-download-btn"
               href="#"
-              target="_blank"
-              rel="noopener noreferrer"
               hidden
-              >View / Download Pass</a
+              aria-disabled="true"
+              >Download Your Event Pass</a
             >
           </div>
         </div>

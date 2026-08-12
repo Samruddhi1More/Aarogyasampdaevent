@@ -263,32 +263,76 @@ a {
 .success-panel h2 {
   margin: 0.15rem 0 0.55rem;
   font-family: var(--font-display);
-  font-size: 1.45rem;
+  font-size: clamp(1.35rem, 4vw, 1.55rem);
   letter-spacing: -0.02em;
 }
 
 .success-copy {
-  margin: 0 auto 0.9rem;
+  margin: 0 auto 0.95rem;
   max-width: 26rem;
   color: var(--color-text-secondary);
+  line-height: 1.5;
 }
 
 .meta-chip {
   margin: 0 auto 0.55rem;
   width: fit-content;
-  padding: 0.4rem 0.8rem;
+  max-width: 100%;
+  padding: 0.45rem 0.9rem;
   border-radius: var(--radius-pill);
   background: rgba(12, 120, 72, 0.1);
   color: var(--color-primary-dark);
-  font-size: 0.86rem;
-  font-weight: 600;
+  font-size: 0.92rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.ticket-chip {
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.pass-ready-block {
+  margin: 0 auto 0.85rem;
+  max-width: 26rem;
+  padding: 0.85rem 0.75rem 0.15rem;
+}
+
+.pass-ready-heading {
+  margin: 0 0 0.45rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 3.6vw, 1.35rem);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--color-primary-dark);
+}
+
+.pass-ready-block.is-ready .pass-ready-heading {
+  color: var(--color-success);
+}
+
+.pass-ready-copy {
+  margin: 0 auto;
+  color: var(--color-text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .success-pass-link {
-  margin-top: 0.65rem;
+  margin-top: 0.35rem;
+  width: min(100%, 22rem);
+}
+
+.success-pass-link.is-disabled,
+.success-pass-link[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.72;
+  cursor: not-allowed;
 }
 
 .success-pass-link[hidden],
+.pass-ready-block[hidden],
 [hidden] {
   display: none !important;
 }
